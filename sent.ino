@@ -1,10 +1,12 @@
 
+#include "crc4.hpp"
+
 // Connect data pin of sensor to D8 of the Arduino Uno/Nano/Mini
 
 // Time for one tick (in µs)
 constexpr uint8_t tick_time = 3;
 
-constexpr auto serial_baud = 115200;
+constexpr auto serial_baud = 230400;
 
 /************************************************************/
 
@@ -143,12 +145,16 @@ void setup() {
   error = false;
 }
 
+Crc4Sent crc;
+
 constexpr char toHex[] = "0123456789ABCDEF";
 void loop() {
-  constexpr auto FRAME_SIZE = 8;
-  char frame[FRAME_SIZE + 1];
+  constexpr auto FRAME_SIZE = 9; // 8 ( +1 for padding pulse)
+  char frame[FRAME_SIZE];
+  bool crcOk = false;
 
   wait_for_syn();
+  crc.start();
   for (int c = 0; c < FRAME_SIZE; c++) {
     auto dx = buffer_read();
     dx = (dx - cycl_offset) / LOOKUP_DIV;
@@ -156,9 +162,18 @@ void loop() {
       frame[c] = '!';
     } else {
       frame[c] = toHex[cycl_lookup[dx]];
+      if(c>0 && c<7){
+        crc.update(cycl_lookup[dx]);
+      }
+      if(c==7){
+        crcOk = crc.finish() == cycl_lookup[dx];
+      }
     }
   }
-  Serial.write(frame, FRAME_SIZE);
+  Serial.write(frame, 8);
+  if(!crcOk){
+    Serial.print(" CRC error!");
+  }
   Serial.println("");
   if (error) {
     Serial.println("Buffer overflow");
