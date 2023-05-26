@@ -163,7 +163,7 @@ void loop() {
     } else {
       frame[c] = toHex[cycl_lookup[dx]];
       if(c>0 && c<7){
-        crc.update(cycl_lookup[dx]);
+        crc.update4(cycl_lookup[dx]);
       }
       if(c==7){
         crcOk = crc.finish() == cycl_lookup[dx];
