@@ -70,7 +70,8 @@ enum class SentError:uint8_t{
     SyncError,
     CrcError,
     NibbleError,
-    OverflowError
+    OverflowError,
+    ConfigurationError
 };
 
 class BaseSent{
@@ -150,10 +151,7 @@ class BaseSent{
             }
         }
 
-        virtual void onError(SentError error){
-            Serial.print("Error: ");
-            Serial.println((uint8_t)error);
-        }
+        virtual void onError(SentError error){}
 
     protected:
         void updateLut(uint64_t f_timer){
