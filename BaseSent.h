@@ -6,8 +6,6 @@
 
 const uint8_t BUFFER_SIZE{32};
 const uint16_t LOOKUP_SIZE{256};
-const uint8_t LOOKUP_DIV{4};
-
 
 class SentBuffer{
     public:
@@ -78,11 +76,11 @@ class BaseSent{
     public:
         BaseSent(uint8_t tick_time, bool padding, SentBuffer &buffer)
             : _state(State::sync)
-            , _tick_time(tick_time)
             , _lastValue(0)
             , _buffer(buffer)
             , _frameIdx(0)
             , _padding(padding)
+            , _tick_time(tick_time)
         {}
 
         virtual void begin(SentCallback callback){
@@ -116,12 +114,17 @@ class BaseSent{
                         }
                         break;
                     case State::data:
-                        dx = (dx - _cycl_offset) / LOOKUP_DIV;
+                        dx = (dx - _cycl_offset) >> _lookup_shift;
                         if (dx > LOOKUP_SIZE || _cycl_lookup[dx] < 0) {
                             onError(SentError::NibbleError);
                             _state = State::sync;
                         } else {
                             auto nibble = _cycl_lookup[dx];
+                            if(nibble < 0){
+                                onError(SentError::NibbleError);
+                                _state = State::sync;
+                                break;
+                            }
                             _frame[_frameIdx] = nibble;
                             if(_frameIdx>0 && _frameIdx<7){
                                 _crc.update4(nibble);
@@ -151,21 +154,33 @@ class BaseSent{
             }
         }
 
-        virtual void onError(SentError error){}
+        virtual void onError(SentError error){
+            (void) error;
+        }
 
     protected:
         void updateLut(uint64_t f_timer){
             _cycl_tick = f_timer / 1000000 * _tick_time; // CPU cycles per tick
 
             // Allow +/- 20% difference
-            _cycl_syn_min = _cycl_tick * _tick_syn * 4 / 5;
-            _cycl_syn_max = _cycl_tick * _tick_syn * 6 / 5;
+            uint16_t _cycl_syn = _cycl_tick * _tick_syn;
+            _cycl_syn_min = _cycl_syn * 4UL / 5;
+            _cycl_syn_max = _cycl_syn * 6UL / 5;
 
-            _cycl_syn = _cycl_tick * _tick_syn;
-            _cycl_offset = _cycl_syn * (_tick_offest * 2 - 1) / _tick_syn / 2;
+            _cycl_offset = _cycl_tick * (_tick_offest * 2UL - 1) / 2;
 
-            for (uint16_t c = 0; c < LOOKUP_SIZE; c++) {
-                int8_t value = c * _tick_syn * LOOKUP_DIV / _cycl_syn;
+            uint16_t lookupDiv = 16 * _cycl_tick / LOOKUP_SIZE;
+            for(_lookup_shift=0; _lookup_shift<16; _lookup_shift++){
+                if (lookupDiv < (1U <<_lookup_shift))
+                    break;
+            }
+            if(_lookup_shift >= 16){
+                onError(SentError::ConfigurationError);
+                return;
+            }
+
+            for (uint32_t c = 0; c < LOOKUP_SIZE; c++) {
+                int8_t value = c * (1 << _lookup_shift) / _cycl_tick;
                 if ( value >= 16) {
                     value = -1;
                 }
@@ -181,12 +196,8 @@ class BaseSent{
         };
         State _state;
 
-        const uint8_t _tick_syn{56};
-        const uint8_t _tick_offest{12};
-
-        uint8_t _tick_time;
-
         int8_t _cycl_lookup[LOOKUP_SIZE];
+        uint8_t _lookup_shift;
 
         uint16_t _lastValue;
         SentBuffer& _buffer;
@@ -199,7 +210,11 @@ class BaseSent{
         uint16_t _cycl_tick;
         uint16_t _cycl_syn_min;
         uint16_t _cycl_syn_max;
-        uint16_t _cycl_syn;
         uint16_t _cycl_offset;
 
+    protected:
+        const uint8_t _tick_syn{56};
+        const uint8_t _tick_offest{12};
+
+        uint8_t _tick_time;
 };
